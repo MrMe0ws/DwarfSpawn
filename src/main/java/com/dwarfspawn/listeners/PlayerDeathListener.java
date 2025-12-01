@@ -1,6 +1,7 @@
 package com.dwarfspawn.listeners;
 
 import com.dwarfspawn.ConfigManager;
+import com.dwarfspawn.StartKitManager;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -10,15 +11,21 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitRunnable;
+
+import com.dwarfspawn.DwarfSpawn;
 
 import java.util.Random;
 
 public class PlayerDeathListener implements Listener {
     private final ConfigManager configManager;
+    private final StartKitManager startKitManager;
     private final Random random = new Random();
 
-    public PlayerDeathListener(ConfigManager configManager) {
+    public PlayerDeathListener(ConfigManager configManager, StartKitManager startKitManager) {
         this.configManager = configManager;
+        this.startKitManager = startKitManager;
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -67,6 +74,38 @@ public class PlayerDeathListener implements Listener {
             if (spawnLocation != null) {
                 // Телепортируем игрока на найденное место
                 player.teleport(spawnLocation);
+            }
+
+            // Выдаем стартовый набор при первом входе (если нет точки спавна)
+            if (!startKitManager.hasSpawnPoint(player)) {
+                // Выдаем набор с небольшой задержкой, чтобы игрок успел заспавниться
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        startKitManager.giveStartKit(player); // Предметы с кулдауном
+                        startKitManager.giveEffects(player); // Эффекты всегда
+                    }
+                }.runTaskLater(DwarfSpawn.getInstance(), 20L); // 1 секунда задержки
+            }
+
+            // Выдаем книгу при первом входе
+            if (configManager.isFirstJoinBookEnabled()) {
+                ItemStack book = configManager.getFirstJoinBook();
+                if (book != null) {
+                    // Выдаем книгу с небольшой задержкой
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            // Проверяем, есть ли место в инвентаре
+                            if (player.getInventory().firstEmpty() != -1) {
+                                player.getInventory().addItem(book);
+                            } else {
+                                // Если инвентарь полон, выкидываем книгу на землю
+                                player.getWorld().dropItemNaturally(player.getLocation(), book);
+                            }
+                        }
+                    }.runTaskLater(DwarfSpawn.getInstance(), 40L); // 2 секунды задержки
+                }
             }
         } catch (Exception e) {
             // Если что-то пошло не так, используем дефолтный спавн Minecraft
@@ -151,6 +190,34 @@ public class PlayerDeathListener implements Listener {
 
             if (spawnLocation != null) {
                 event.setRespawnLocation(spawnLocation);
+            }
+
+            // Выдаем стартовый набор при смерти (если нет точки спавна)
+            // Проверяем якорь ада через Paper API
+            boolean isAnchorSpawn = false;
+            try {
+                java.lang.reflect.Method isAnchorSpawnMethod = event.getClass().getMethod("isAnchorSpawn");
+                isAnchorSpawn = (Boolean) isAnchorSpawnMethod.invoke(event);
+            } catch (Exception e) {
+                // Метод не найден (не Paper или старая версия), считаем что не якорь
+            }
+
+            if (!isAnchorSpawn && !startKitManager.hasSpawnPoint(player)) {
+                // Выдаем эффекты всегда при возрождении (если включены)
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        startKitManager.giveEffects(player); // Эффекты всегда
+                    }
+                }.runTaskLater(DwarfSpawn.getInstance(), 20L); // 1 секунда задержки
+
+                // Выдаем предметы с учетом кулдауна
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        startKitManager.giveStartKit(player); // Предметы с кулдауном
+                    }
+                }.runTaskLater(DwarfSpawn.getInstance(), 20L); // 1 секунда задержки
             }
         } catch (Exception e) {
             // Если что-то пошло не так, используем дефолтный спавн Minecraft

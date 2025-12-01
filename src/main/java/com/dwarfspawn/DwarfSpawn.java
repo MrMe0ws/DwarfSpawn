@@ -8,6 +8,7 @@ public class DwarfSpawn extends JavaPlugin {
 
     private static DwarfSpawn instance;
     private ConfigManager configManager;
+    private StartKitManager startKitManager;
 
     @Override
     public void onEnable() {
@@ -19,8 +20,11 @@ public class DwarfSpawn extends JavaPlugin {
         // Инициализируем менеджер конфигурации
         configManager = new ConfigManager(this);
 
+        // Инициализируем менеджер стартового набора
+        startKitManager = new StartKitManager(configManager);
+
         // Регистрируем слушателей
-        getServer().getPluginManager().registerEvents(new PlayerDeathListener(configManager), this);
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(configManager, startKitManager), this);
 
         // Регистрируем команды
         DwarfSpawnCommand command = new DwarfSpawnCommand(this, configManager);
@@ -41,5 +45,9 @@ public class DwarfSpawn extends JavaPlugin {
 
     public ConfigManager getConfigManager() {
         return configManager;
+    }
+
+    public StartKitManager getStartKitManager() {
+        return startKitManager;
     }
 }
