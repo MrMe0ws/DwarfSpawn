@@ -35,6 +35,18 @@ public class DwarfSpawnCommand implements CommandExecutor, TabCompleter {
             try {
                 configManager.reloadConfig();
                 sender.sendMessage("§6[DwarfSpawn] §aКонфигурация успешно перезагружена!");
+            } catch (org.bukkit.configuration.InvalidConfigurationException e) {
+                sender.sendMessage("§c[DwarfSpawn] §7Ошибка при перезагрузке конфигурации!");
+                sender.sendMessage("§c[DwarfSpawn] §7Проверьте синтаксис config.yml в консоли сервера.");
+                plugin.getLogger().severe("═══════════════════════════════════════════════════════");
+                plugin.getLogger().severe("ОШИБКА ПРИ ЗАГРУЗКЕ КОНФИГУРАЦИИ!");
+                plugin.getLogger().severe("Проверьте файл config.yml на наличие синтаксических ошибок.");
+                plugin.getLogger().severe("Ошибка: " + e.getMessage());
+                if (e.getCause() != null) {
+                    plugin.getLogger().severe("Причина: " + e.getCause().getMessage());
+                }
+                plugin.getLogger().severe("═══════════════════════════════════════════════════════");
+                e.printStackTrace();
             } catch (Exception e) {
                 sender.sendMessage("§c[DwarfSpawn] §7Ошибка при перезагрузке конфигурации: " + e.getMessage());
                 plugin.getLogger().severe("Ошибка при перезагрузке конфигурации: " + e.getMessage());

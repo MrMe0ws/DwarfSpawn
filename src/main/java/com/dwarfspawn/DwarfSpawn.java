@@ -18,7 +18,27 @@ public class DwarfSpawn extends JavaPlugin {
         saveDefaultConfig();
 
         // Инициализируем менеджер конфигурации
-        configManager = new ConfigManager(this);
+        try {
+            configManager = new ConfigManager(this);
+        } catch (org.bukkit.configuration.InvalidConfigurationException e) {
+            getLogger().severe("═══════════════════════════════════════════════════════");
+            getLogger().severe("КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить конфигурацию!");
+            getLogger().severe("Проверьте файл config.yml на наличие синтаксических ошибок.");
+            getLogger().severe("Ошибка: " + e.getMessage());
+            if (e.getCause() != null) {
+                getLogger().severe("Причина: " + e.getCause().getMessage());
+            }
+            getLogger().severe("Плагин будет отключен.");
+            getLogger().severe("═══════════════════════════════════════════════════════");
+            e.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        } catch (Exception e) {
+            getLogger().severe("Неожиданная ошибка при загрузке конфигурации: " + e.getMessage());
+            e.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         // Инициализируем менеджер стартового набора
         startKitManager = new StartKitManager(configManager);

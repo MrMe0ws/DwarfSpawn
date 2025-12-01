@@ -18,14 +18,27 @@ public class ConfigManager {
     private final JavaPlugin plugin;
     private FileConfiguration config;
 
-    public ConfigManager(JavaPlugin plugin) {
+    public ConfigManager(JavaPlugin plugin) throws org.bukkit.configuration.InvalidConfigurationException {
         this.plugin = plugin;
         reloadConfig();
     }
 
-    public void reloadConfig() {
-        plugin.reloadConfig();
-        config = plugin.getConfig();
+    public void reloadConfig() throws org.bukkit.configuration.InvalidConfigurationException {
+        try {
+            plugin.reloadConfig();
+            config = plugin.getConfig();
+            
+            // Проверяем, что конфиг действительно загрузился
+            if (config == null) {
+                throw new org.bukkit.configuration.InvalidConfigurationException("Конфигурация не была загружена");
+            }
+        } catch (org.bukkit.configuration.InvalidConfigurationException e) {
+            // Пробрасываем исключение дальше
+            throw e;
+        } catch (Exception e) {
+            // Оборачиваем другие исключения в InvalidConfigurationException
+            throw new org.bukkit.configuration.InvalidConfigurationException("Ошибка при загрузке конфигурации: " + e.getMessage(), e);
+        }
     }
 
     public boolean isRadiusEnabled() {
