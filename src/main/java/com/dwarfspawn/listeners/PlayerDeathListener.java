@@ -48,11 +48,15 @@ public class PlayerDeathListener implements Listener {
             // Получаем базовую точку спавна
             Location baseSpawn = configManager.getSpawnLocation();
             if (baseSpawn == null) {
+                // Если нет точки спавна, все равно выдаем кит и книгу новому игроку
+                giveKitAndBookToNewPlayer(player);
                 return; // Не удалось получить точку спавна из конфига
             }
 
             World world = baseSpawn.getWorld();
             if (world == null) {
+                // Если мир не найден, все равно выдаем кит и книгу новому игроку
+                giveKitAndBookToNewPlayer(player);
                 return;
             }
 
@@ -65,7 +69,17 @@ public class PlayerDeathListener implements Listener {
             }
 
             if (spawnLocation == null) {
+                // Если не удалось найти место, все равно выдаем кит и книгу новому игроку
+                giveKitAndBookToNewPlayer(player);
                 return; // Не удалось найти подходящее место
+            }
+
+            // Загружаем чанк перед проверкой спавна (важно для первого входа)
+            int chunkX = spawnLocation.getBlockX() >> 4;
+            int chunkZ = spawnLocation.getBlockZ() >> 4;
+            if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                // Загружаем чанк синхронно (это безопасно в главном потоке)
+                world.loadChunk(chunkX, chunkZ);
             }
 
             // Проверяем и корректируем местоположение
@@ -76,26 +90,49 @@ public class PlayerDeathListener implements Listener {
                 player.teleport(spawnLocation);
             }
 
-            // Выдаем стартовый набор при первом входе (если нет точки спавна)
-            if (!startKitManager.hasSpawnPoint(player)) {
-                // Выдаем набор с небольшой задержкой, чтобы игрок успел заспавниться
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
+            // Выдаем стартовый набор и книгу при первом входе (для нового игрока всегда)
+            giveKitAndBookToNewPlayer(player);
+        } catch (Exception e) {
+            // Если что-то пошло не так, все равно пытаемся выдать кит и книгу новому игроку
+            try {
+                Player player = event.getPlayer();
+                if (!player.hasPlayedBefore()) {
+                    giveKitAndBookToNewPlayer(player);
+                }
+            } catch (Exception ex) {
+                // Игнорируем ошибки при выдаче
+            }
+        }
+    }
+
+    /**
+     * Выдает стартовый набор и книгу новому игроку
+     * @param player Игрок
+     */
+    private void giveKitAndBookToNewPlayer(Player player) {
+        // Выдаем стартовый набор при первом входе (если нет точки спавна)
+        if (!startKitManager.hasSpawnPoint(player)) {
+            // Выдаем набор с небольшой задержкой, чтобы игрок успел заспавниться
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline()) {
                         startKitManager.giveStartKit(player); // Предметы с кулдауном
                         startKitManager.giveEffects(player); // Эффекты всегда
                     }
-                }.runTaskLater(DwarfSpawn.getInstance(), 20L); // 1 секунда задержки
-            }
+                }
+            }.runTaskLater(DwarfSpawn.getInstance(), 20L); // 1 секунда задержки
+        }
 
-            // Выдаем книгу при первом входе
-            if (configManager.isFirstJoinBookEnabled()) {
-                ItemStack book = configManager.getFirstJoinBook();
-                if (book != null) {
-                    // Выдаем книгу с небольшой задержкой
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
+        // Выдаем книгу при первом входе
+        if (configManager.isFirstJoinBookEnabled()) {
+            ItemStack book = configManager.getFirstJoinBook();
+            if (book != null) {
+                // Выдаем книгу с небольшой задержкой
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (player.isOnline()) {
                             // Проверяем, есть ли место в инвентаре
                             if (player.getInventory().firstEmpty() != -1) {
                                 player.getInventory().addItem(book);
@@ -104,12 +141,9 @@ public class PlayerDeathListener implements Listener {
                                 player.getWorld().dropItemNaturally(player.getLocation(), book);
                             }
                         }
-                    }.runTaskLater(DwarfSpawn.getInstance(), 40L); // 2 секунды задержки
-                }
+                    }
+                }.runTaskLater(DwarfSpawn.getInstance(), 40L); // 2 секунды задержки
             }
-        } catch (Exception e) {
-            // Если что-то пошло не так, используем дефолтный спавн Minecraft
-            // Не логируем ошибку, чтобы не засорять консоль
         }
     }
 
@@ -311,8 +345,12 @@ public class PlayerDeathListener implements Listener {
             int chunkX = location.getBlockX() >> 4;
             int chunkZ = location.getBlockZ() >> 4;
             if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                // Чанк не загружен, возвращаем null (используется дефолтный спавн)
-                return null;
+                // Чанк не загружен, пытаемся загрузить его
+                world.loadChunk(chunkX, chunkZ);
+                // Если все еще не загружен, возвращаем null
+                if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                    return null;
+                }
             }
 
             // Ищем подходящее место, начиная с максимальной высоты и спускаясь вниз
@@ -324,7 +362,12 @@ public class PlayerDeathListener implements Listener {
                 int testChunkX = testLocation.getBlockX() >> 4;
                 int testChunkZ = testLocation.getBlockZ() >> 4;
                 if (!world.isChunkLoaded(testChunkX, testChunkZ)) {
-                    continue; // Чанк не загружен, пропускаем эту координату
+                    // Пытаемся загрузить чанк
+                    world.loadChunk(testChunkX, testChunkZ);
+                    // Если все еще не загружен, пропускаем эту координату
+                    if (!world.isChunkLoaded(testChunkX, testChunkZ)) {
+                        continue;
+                    }
                 }
 
                 // Проверяем, что блок под ногами твердый
@@ -380,9 +423,13 @@ public class PlayerDeathListener implements Listener {
                         int checkChunkX = checkLocation.getBlockX() >> 4;
                         int checkChunkZ = checkLocation.getBlockZ() >> 4;
                         if (!world.isChunkLoaded(checkChunkX, checkChunkZ)) {
-                            // Чанк не загружен, пропускаем эту проверку
+                            // Пытаемся загрузить чанк
+                            world.loadChunk(checkChunkX, checkChunkZ);
+                            // Если все еще не загружен, пропускаем эту проверку
                             // Но продолжаем искать дальше, так как чанки могут быть загружены выше
-                            continue;
+                            if (!world.isChunkLoaded(checkChunkX, checkChunkZ)) {
+                                continue;
+                            }
                         }
 
                         Material blockAbove = world.getBlockAt(checkLocation).getType();
