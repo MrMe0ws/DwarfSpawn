@@ -1,5 +1,10 @@
 package com.dwarfspawn;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -13,6 +18,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ConfigManager {
     private final JavaPlugin plugin;
@@ -236,22 +243,124 @@ public class ConfigManager {
 
         // Устанавливаем страницы
         List<String> pageStrings = config.getStringList("first-join-book-pages");
-        List<String> pages = new ArrayList<>();
+        List<Component> pages = new ArrayList<>();
 
         for (String pageString : pageStrings) {
-            // Конвертируем цветовые коды & в §
-            String formattedPage = pageString.replace('&', '§');
-            pages.add(formattedPage);
+            Component pageComponent = parsePageWithLinks(pageString);
+            pages.add(pageComponent);
         }
 
         if (pages.isEmpty()) {
             // Если страниц нет, добавляем дефолтную
-            pages.add("Добро пожаловать на сервер!");
+            pages.add(Component.text("Добро пожаловать на сервер!"));
         }
 
-        bookMeta.setPages(pages);
+        // Используем Adventure API для установки страниц с поддержкой ссылок
+        // В Paper API используется метод pages() который возвращает BookMeta.Builder
+        try {
+            // Проверяем, есть ли метод pages() в BookMeta (Paper API)
+            java.lang.reflect.Method pagesMethod = bookMeta.getClass().getMethod("pages", List.class);
+            pagesMethod.invoke(bookMeta, pages);
+        } catch (NoSuchMethodException e) {
+            // Если метод не найден, пробуем использовать setPages с Component через рефлексию
+            try {
+                // Ищем метод setPages, который принимает List<? extends Component>
+                for (java.lang.reflect.Method method : bookMeta.getClass().getMethods()) {
+                    if (method.getName().equals("setPages") && method.getParameterCount() == 1) {
+                        Class<?> paramType = method.getParameterTypes()[0];
+                        if (List.class.isAssignableFrom(paramType)) {
+                            method.invoke(bookMeta, pages);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                // Если не поддерживается Component API, используем старый способ
+                List<String> legacyPages = new ArrayList<>();
+                for (String pageString : pageStrings) {
+                    String formattedPage = pageString.replace('&', '§');
+                    // Убираем формат ссылок [текст](url) для старого способа
+                    formattedPage = formattedPage.replaceAll("\\[([^\\]]+)\\]\\([^\\)]+\\)", "$1");
+                    legacyPages.add(formattedPage);
+                }
+                if (legacyPages.isEmpty()) {
+                    legacyPages.add("Добро пожаловать на сервер!");
+                }
+                bookMeta.setPages(legacyPages);
+            }
+        } catch (Exception e) {
+            // Если что-то пошло не так, используем старый способ
+            List<String> legacyPages = new ArrayList<>();
+            for (String pageString : pageStrings) {
+                String formattedPage = pageString.replace('&', '§');
+                // Убираем формат ссылок [текст](url) для старого способа
+                formattedPage = formattedPage.replaceAll("\\[([^\\]]+)\\]\\([^\\)]+\\)", "$1");
+                legacyPages.add(formattedPage);
+            }
+            if (legacyPages.isEmpty()) {
+                legacyPages.add("Добро пожаловать на сервер!");
+            }
+            bookMeta.setPages(legacyPages);
+        }
+        
         book.setItemMeta(bookMeta);
 
         return book;
+    }
+
+    /**
+     * Парсит страницу книги, преобразуя формат [текст](url) в кликабельные ссылки
+     * @param pageString Исходная строка страницы
+     * @return Component с поддержкой ссылок
+     */
+    private Component parsePageWithLinks(String pageString) {
+        // Конвертируем цветовые коды & в формат Adventure
+        LegacyComponentSerializer serializer = LegacyComponentSerializer.legacySection();
+        Component baseComponent = serializer.deserialize(pageString.replace('&', '§'));
+
+        // Паттерн для поиска ссылок в формате [текст](url)
+        Pattern linkPattern = Pattern.compile("\\[([^\\]]+)\\]\\(([^\\)]+)\\)");
+        Matcher matcher = linkPattern.matcher(pageString);
+
+        // Если нет ссылок, просто возвращаем компонент с цветовыми кодами
+        if (!matcher.find()) {
+            return baseComponent;
+        }
+
+        // Строим компонент с ссылками
+        matcher.reset();
+        Component result = Component.empty();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            // Добавляем текст до ссылки
+            if (matcher.start() > lastEnd) {
+                String beforeLink = pageString.substring(lastEnd, matcher.start());
+                Component beforeComponent = serializer.deserialize(beforeLink.replace('&', '§'));
+                result = result.append(beforeComponent);
+            }
+
+            // Создаем кликабельную ссылку
+            String linkText = matcher.group(1);
+            String linkUrl = matcher.group(2);
+            
+            // Парсим цветовые коды в тексте ссылки
+            Component linkComponent = serializer.deserialize(linkText.replace('&', '§'))
+                    .clickEvent(ClickEvent.openUrl(linkUrl))
+                    .decoration(TextDecoration.UNDERLINED, true)
+                    .color(NamedTextColor.BLUE);
+
+            result = result.append(linkComponent);
+            lastEnd = matcher.end();
+        }
+
+        // Добавляем оставшийся текст после последней ссылки
+        if (lastEnd < pageString.length()) {
+            String afterLink = pageString.substring(lastEnd);
+            Component afterComponent = serializer.deserialize(afterLink.replace('&', '§'));
+            result = result.append(afterComponent);
+        }
+
+        return result;
     }
 }
