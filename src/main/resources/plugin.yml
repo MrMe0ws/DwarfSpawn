@@ -11,8 +11,18 @@ commands:
     description: Команды плагина DwarfSpawn
     usage: /<command> reload
     aliases: [ds, dwarf]
+  rtp:
+    description: Телепортирует игрока в случайное место на карте
+    usage: /<command> [игрок]
+    aliases: []
 
 permissions:
   dwarfspawn.reload:
     description: Позволяет перезагружать конфигурацию плагина
     default: op
+  dwarfspawn.rtp:
+    description: Позволяет использовать команду /rtp
+    default: false
+  ds.rtp:
+    description: Позволяет использовать команду /rtp (алиас)
+    default: false

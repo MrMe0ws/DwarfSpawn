@@ -1,6 +1,7 @@
 package com.dwarfspawn;
 
 import com.dwarfspawn.commands.DwarfSpawnCommand;
+import com.dwarfspawn.commands.RtpCommand;
 import com.dwarfspawn.listeners.PlayerDeathListener;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -50,6 +51,10 @@ public class DwarfSpawn extends JavaPlugin {
         DwarfSpawnCommand command = new DwarfSpawnCommand(this, configManager);
         getCommand("dwarfspawn").setExecutor(command);
         getCommand("dwarfspawn").setTabCompleter(command);
+
+        // Регистрируем команду /rtp
+        RtpCommand rtpCommand = new RtpCommand(this, configManager);
+        getCommand("rtp").setExecutor(rtpCommand);
 
         getLogger().info("DwarfSpawn плагин успешно загружен!");
     }

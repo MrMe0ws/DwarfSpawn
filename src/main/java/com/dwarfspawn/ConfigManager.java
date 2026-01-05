@@ -10,8 +10,11 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
+import org.bukkit.inventory.meta.Damageable;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -135,25 +138,150 @@ public class ConfigManager {
 
         for (String itemString : itemStrings) {
             try {
-                String[] parts = itemString.split(":");
-                if (parts.length < 2) {
-                    plugin.getLogger().warning("Неверный формат предмета в start-kit-items: " + itemString);
-                    continue;
+                ItemStack item = parseItemString(itemString);
+                if (item != null) {
+                    items.add(item);
                 }
-
-                Material material = Material.valueOf(parts[0].toUpperCase());
-                int amount = Integer.parseInt(parts[1]);
-
-                ItemStack item = new ItemStack(material, amount);
-                items.add(item);
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Неверный материал или количество в start-kit-items: " + itemString);
             } catch (Exception e) {
                 plugin.getLogger().warning("Ошибка при парсинге предмета: " + itemString + " - " + e.getMessage());
             }
         }
 
         return items;
+    }
+
+    /**
+     * Парсит строку предмета с поддержкой зачарований, названий и повреждений
+     * Формат: "MATERIAL:AMOUNT|name:Название|damage:ПРОЧНОСТЬ|enchant:ЗАЧАРОВАНИЕ:УРОВЕНЬ"
+     * Примеры:
+     *   - "LEATHER_HELMET:1" - простой предмет
+     *   - "LEATHER_HELMET:1|name:Шляпа от солнца" - с названием
+     *   - "LEATHER_HELMET:1|name:Шляпа от солнца|damage:55" - с повреждением (55 из максимальной прочности)
+     *   - "WOODEN_PICKAXE:1|enchant:BINDING_CURSE:1" - с зачарованием
+     *   - "LEATHER_HELMET:1|name:Шляпа от солнца|damage:55|enchant:BINDING_CURSE:1" - все параметры
+     */
+    private ItemStack parseItemString(String itemString) {
+        try {
+            // Разделяем основную часть и дополнительные параметры
+            String[] mainParts = itemString.split("\\|", 2);
+            String basePart = mainParts[0];
+            String extraParams = mainParts.length > 1 ? mainParts[1] : "";
+
+            // Парсим основную часть (материал и количество)
+            String[] parts = basePart.split(":");
+            if (parts.length < 2) {
+                plugin.getLogger().warning("Неверный формат предмета в start-kit-items: " + itemString);
+                return null;
+            }
+
+            Material material;
+            try {
+                material = Material.valueOf(parts[0].toUpperCase());
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Неверный материал в start-kit-items: " + parts[0] + " (строка: " + itemString + ")");
+                return null;
+            }
+
+            int amount;
+            try {
+                amount = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                plugin.getLogger().warning("Неверное количество в start-kit-items: " + parts[1] + " (строка: " + itemString + ")");
+                return null;
+            }
+
+        ItemStack item = new ItemStack(material, amount);
+        ItemMeta meta = item.getItemMeta();
+        
+        if (meta == null) {
+            return item;
+        }
+
+        // Парсим дополнительные параметры
+        if (!extraParams.isEmpty()) {
+            String[] params = extraParams.split("\\|");
+            
+            for (String param : params) {
+                if (param.isEmpty()) continue;
+                
+                String[] keyValue = param.split(":", 2);
+                if (keyValue.length < 2) continue;
+                
+                String key = keyValue[0].toLowerCase();
+                String value = keyValue[1];
+                
+                switch (key) {
+                    case "name":
+                        // Устанавливаем название предмета
+                        LegacyComponentSerializer serializer = LegacyComponentSerializer.legacySection();
+                        Component nameComponent = serializer.deserialize(value.replace('&', '§'));
+                        meta.displayName(nameComponent);
+                        break;
+                        
+                    case "damage":
+                        // Устанавливаем повреждение (прочность)
+                        try {
+                            int damage = Integer.parseInt(value);
+                            if (meta instanceof Damageable) {
+                                Damageable damageable = (Damageable) meta;
+                                int maxDurability = material.getMaxDurability();
+                                if (maxDurability > 0) {
+                                    // damage - это количество повреждения, а не оставшаяся прочность
+                                    // Если указано 55, значит предмет поврежден на 55 единиц
+                                    damageable.setDamage(Math.min(damage, maxDurability - 1));
+                                }
+                            }
+                        } catch (NumberFormatException e) {
+                            plugin.getLogger().warning("Неверное значение damage для предмета: " + itemString);
+                        }
+                        break;
+                        
+                    case "enchant":
+                        // Добавляем зачарование
+                        try {
+                            String[] enchantParts = value.split(":");
+                            if (enchantParts.length >= 2) {
+                                String enchantName = enchantParts[0].toUpperCase();
+                                Enchantment enchantment = null;
+                                
+                                // Пытаемся найти зачарование по имени
+                                for (Enchantment ench : Enchantment.values()) {
+                                    if (ench != null && ench.getKey().getKey().equalsIgnoreCase(enchantName)) {
+                                        enchantment = ench;
+                                        break;
+                                    }
+                                }
+                                
+                                // Если не нашли, пробуем через NamespacedKey
+                                if (enchantment == null) {
+                                    try {
+                                        enchantment = Enchantment.getByKey(org.bukkit.NamespacedKey.minecraft(enchantName.toLowerCase()));
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                                
+                                if (enchantment != null) {
+                                    int level = Integer.parseInt(enchantParts[1]);
+                                    meta.addEnchant(enchantment, level, true); // true = игнорировать ограничения
+                                } else {
+                                    plugin.getLogger().warning("Неизвестное зачарование: " + enchantParts[0]);
+                                }
+                            }
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Ошибка при парсинге зачарования: " + value + " - " + e.getMessage());
+                        }
+                        break;
+                }
+            }
+        }
+        
+            item.setItemMeta(meta);
+            return item;
+        } catch (Exception e) {
+            plugin.getLogger().warning("Ошибка при парсинге предмета: " + itemString + " - " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
     }
 
     public List<PotionEffect> getStartKitEffects() {
@@ -362,5 +490,172 @@ public class ConfigManager {
         }
 
         return result;
+    }
+
+    // ============================================
+    // Методы для команды /rtp
+    // ============================================
+
+    public boolean isRtpEnabled() {
+        return config.getBoolean("rtp-enabled", true);
+    }
+
+    public String getRtpWorld() {
+        return config.getString("rtp-world", "world");
+    }
+
+    public int getRtpRadius() {
+        return config.getInt("rtp-radius", 100);
+    }
+
+    public boolean isRtpRandomY() {
+        return config.getBoolean("rtp-random-y", false);
+    }
+
+    public int getRtpMinHeight() {
+        return config.getInt("rtp-min-height", 25);
+    }
+
+    public int getRtpMaxHeight() {
+        return config.getInt("rtp-max-height", 46);
+    }
+
+    public boolean shouldRtpCheckBlockAbove() {
+        return config.getBoolean("rtp-check-block-above", true);
+    }
+
+    public int getRtpMaxAttempts() {
+        return config.getInt("rtp-max-attempts", 100);
+    }
+
+    public int getRtpDelay() {
+        return config.getInt("rtp-delay", 3);
+    }
+
+    public int getRtpCooldown() {
+        return config.getInt("rtp-cooldown", 60);
+    }
+
+    public boolean isRtpDebug() {
+        return config.getBoolean("rtp-debug", false);
+    }
+
+    public boolean isRtpVisualEffectsEnabled() {
+        return config.getBoolean("rtp-visual-effects-enabled", true);
+    }
+
+    /**
+     * Получает список эффектов зелий для применения после телепортации
+     * @return Список эффектов зелий
+     */
+    public List<PotionEffect> getRtpPotionEffects() {
+        List<PotionEffect> effects = new ArrayList<>();
+        if (!isRtpVisualEffectsEnabled()) {
+            return effects;
+        }
+        
+        List<String> effectStrings = config.getStringList("rtp-potion-effects");
+
+        for (String effectString : effectStrings) {
+            // Пропускаем пустые строки
+            if (effectString == null || effectString.trim().isEmpty()) {
+                continue;
+            }
+
+            try {
+                String[] parts = effectString.split(":");
+                if (parts.length < 3) {
+                    plugin.getLogger().warning("Неверный формат эффекта в rtp-potion-effects: " + effectString);
+                    continue;
+                }
+
+                String effectName = parts[0].toUpperCase();
+                int level = Integer.parseInt(parts[1]) - 1; // Уровень в Minecraft начинается с 0
+                int duration = Integer.parseInt(parts[2]) * 20; // Конвертируем секунды в тики
+
+                // Пытаемся найти через NamespacedKey (современный способ)
+                PotionEffectType effectType = null;
+                try {
+                    effectType = PotionEffectType.getByKey(org.bukkit.NamespacedKey.minecraft(effectName.toLowerCase()));
+                } catch (Exception ignored) {
+                }
+                
+                // Если не нашли, пробуем устаревший метод (для совместимости)
+                if (effectType == null) {
+                    try {
+                        effectType = PotionEffectType.getByName(effectName);
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                if (effectType != null) {
+                    effects.add(new PotionEffect(effectType, duration, level));
+                } else {
+                    plugin.getLogger().warning("Неизвестный тип эффекта в rtp-potion-effects: " + effectName);
+                }
+            } catch (NumberFormatException e) {
+                plugin.getLogger().warning("Неверный формат эффекта в rtp-potion-effects: " + effectString);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Ошибка при парсинге эффекта: " + effectString + " - " + e.getMessage());
+            }
+        }
+
+        return effects;
+    }
+
+    /**
+     * Получает тип частиц для визуального эффекта телепортации
+     * @return Название типа частиц или null, если эффект отключен
+     */
+    public String getRtpParticleEffect() {
+        if (!isRtpVisualEffectsEnabled()) {
+            return null;
+        }
+        String particle = config.getString("rtp-particle-effect", "PORTAL");
+        if (particle == null || particle.isEmpty() || particle.equalsIgnoreCase("NONE")) {
+            return null;
+        }
+        return particle.toUpperCase();
+    }
+
+    /**
+     * Получает количество частиц для визуального эффекта
+     * @return Количество частиц
+     */
+    public int getRtpParticleCount() {
+        return config.getInt("rtp-particle-count", 50);
+    }
+
+    /**
+     * Получает настраиваемое сообщение для команды /rtp
+     * @param key Ключ сообщения
+     * @param defaultValue Значение по умолчанию
+     * @return Сообщение с замененными переменными (если нужно)
+     */
+    public String getRtpMessage(String key, String defaultValue) {
+        String message = config.getString("rtp-messages." + key, defaultValue);
+        // Конвертируем цветовые коды & в §
+        return message.replace('&', '§');
+    }
+
+    /**
+     * Получает настраиваемое сообщение для команды /rtp с заменой переменных
+     * @param key Ключ сообщения
+     * @param defaultValue Значение по умолчанию
+     * @param replacements Замены в формате "переменная=значение"
+     * @return Сообщение с замененными переменными
+     */
+    public String getRtpMessage(String key, String defaultValue, String... replacements) {
+        String message = getRtpMessage(key, defaultValue);
+        
+        // Заменяем переменные
+        for (String replacement : replacements) {
+            String[] parts = replacement.split("=", 2);
+            if (parts.length == 2) {
+                message = message.replace("{" + parts[0] + "}", parts[1]);
+            }
+        }
+        
+        return message;
     }
 }

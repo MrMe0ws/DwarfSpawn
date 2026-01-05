@@ -56,11 +56,36 @@ public class StartKitManager {
         List<ItemStack> items = configManager.getStartKitItems();
         for (ItemStack item : items) {
             if (item != null && item.getType() != Material.AIR) {
-                // Проверяем, есть ли место в инвентаре
-                HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(item);
-                // Если инвентарь полон, выкидываем предметы на землю
-                for (ItemStack left : leftover.values()) {
-                    player.getWorld().dropItemNaturally(player.getLocation(), left);
+                // Проверяем, является ли предмет шлемом
+                Material itemType = item.getType();
+                boolean isHelmet = itemType == Material.LEATHER_HELMET ||
+                                  itemType == Material.CHAINMAIL_HELMET ||
+                                  itemType == Material.IRON_HELMET ||
+                                  itemType == Material.GOLDEN_HELMET ||
+                                  itemType == Material.DIAMOND_HELMET ||
+                                  itemType == Material.NETHERITE_HELMET ||
+                                  itemType == Material.TURTLE_HELMET;
+                
+                if (isHelmet) {
+                    // Если на голове уже есть шлем, сохраняем его в инвентарь
+                    ItemStack currentHelmet = player.getInventory().getHelmet();
+                    if (currentHelmet != null && currentHelmet.getType() != Material.AIR) {
+                        // Старый шлем добавляем в инвентарь
+                        HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(currentHelmet);
+                        // Если инвентарь полон, выкидываем старый шлем на землю
+                        for (ItemStack left : leftover.values()) {
+                            player.getWorld().dropItemNaturally(player.getLocation(), left);
+                        }
+                    }
+                    // Надеваем новый шлем на голову
+                    player.getInventory().setHelmet(item);
+                } else {
+                    // Для остальных предметов добавляем в инвентарь
+                    HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(item);
+                    // Если инвентарь полон, выкидываем предметы на землю
+                    for (ItemStack left : leftover.values()) {
+                        player.getWorld().dropItemNaturally(player.getLocation(), left);
+                    }
                 }
             }
         }
